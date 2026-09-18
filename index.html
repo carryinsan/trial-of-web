@@ -1,0 +1,146 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ArixAI Page Content Extractor</title>
+<style>
+:root{color-scheme:dark;--bg:#090c12;--panel:#10151e;--muted:#8d98aa;--text:#edf2f8;--line:#242c38;--accent:#68a8ff;--good:#54d69a;--bad:#ff6e76}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#151d2a 0,#090c12 48%);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--text)}
+main{width:min(1200px,94vw);margin:34px auto 60px}.hero{display:flex;justify-content:space-between;gap:20px;align-items:flex-end;margin-bottom:20px}h1{font-size:30px;margin:0 0 7px}.sub{color:var(--muted);margin:0;line-height:1.5}.badge{border:1px solid var(--line);background:#0d121a;border-radius:999px;padding:8px 12px;color:#b8c3d3;font-size:12px;white-space:nowrap}
+.panel{background:rgba(16,21,30,.92);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:0 16px 50px rgba(0,0,0,.25)}
+textarea{width:100%;min-height:155px;resize:vertical;border-radius:12px;border:1px solid #2c3543;background:#0a0f16;color:var(--text);padding:14px;font:14px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;outline:none}textarea:focus{border-color:#3f77ba}
+.controls{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:14px}.controls label{display:flex;align-items:center;gap:8px;color:#c2cbd7;font-size:13px}.controls input[type=checkbox]{accent-color:var(--accent)}.controls input[type=number]{width:90px;background:#0a0f16;border:1px solid var(--line);color:var(--text);border-radius:9px;padding:8px}
+button{border:0;border-radius:11px;background:var(--accent);color:#07111e;font-weight:800;padding:11px 16px;cursor:pointer}button.secondary{background:#192230;color:#e2eaf4;border:1px solid #303b4a}button:disabled{opacity:.55;cursor:not-allowed}
+.status{margin-top:12px;min-height:20px;color:var(--muted);font-size:13px}.status.good{color:var(--good)}.status.bad{color:var(--bad)}
+.summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:18px 0}.stat{background:#0b1017;border:1px solid var(--line);border-radius:12px;padding:12px}.stat small{display:block;color:var(--muted);margin-bottom:4px}.stat strong{font-size:20px}
+.cards{display:grid;gap:14px}.card{border:1px solid var(--line);background:#0c1118;border-radius:15px;overflow:hidden}.head{padding:14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px}.url{font:12px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;word-break:break-all;color:#b9c4d4}.ok{color:var(--good);font-weight:700}.fail{color:var(--bad);font-weight:700}.body{padding:14px}.grid{display:grid;grid-template-columns:1.2fr .8fr;gap:14px}.box{border:1px solid var(--line);border-radius:11px;padding:11px;background:#090e14}.box h3{margin:0 0 8px;font-size:13px;color:#cbd5e3}.text{white-space:pre-wrap;line-height:1.6;font-size:14px;max-height:500px;overflow:auto}.mono{font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;word-break:break-word;color:#b9c5d4;max-height:300px;overflow:auto}.chips{display:flex;flex-wrap:wrap;gap:7px}.chip{border:1px solid #2c3745;border-radius:999px;padding:5px 8px;font-size:11px;color:#b9c5d4}.meta{display:grid;gap:6px;font-size:12px;color:#9eabbc}.meta b{color:#d8e0ea}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+@media(max-width:850px){.grid{grid-template-columns:1fr}.summary{grid-template-columns:repeat(2,minmax(0,1fr))}.hero{align-items:flex-start;flex-direction:column}}
+</style>
+</head>
+<body>
+<main>
+  <section class="hero">
+    <div>
+      <h1>ArixAI Page Content Extractor</h1>
+      <p class="sub">Zero API keys · Vercel Edge · paste one URL per line or separate URLs with commas.</p>
+    </div>
+    <div class="badge">Edge cascade v1.0.0</div>
+  </section>
+
+  <section class="panel">
+    <textarea id="urls" placeholder="https://example.com/article\nhttps://another-site.com/page, https://third-site.com/story"></textarea>
+    <div class="controls">
+      <button id="run">Extract content</button>
+      <button class="secondary" id="clear">Clear</button>
+      <label><input id="deep" type="checkbox" checked> Deep fallback discovery</label>
+      <label><input id="raw" type="checkbox"> Include raw HTML</label>
+      <label>Timeout <input id="timeout" type="number" min="2500" max="12000" step="500" value="8500"> ms</label>
+    </div>
+    <div id="status" class="status"></div>
+  </section>
+
+  <section id="summary" class="summary" hidden></section>
+  <section id="results" class="cards"></section>
+</main>
+<script type="module">
+const $ = id => document.getElementById(id);
+const els = { urls:$('urls'), run:$('run'), clear:$('clear'), deep:$('deep'), raw:$('raw'), timeout:$('timeout'), status:$('status'), summary:$('summary'), results:$('results') };
+
+const esc = value => String(value ?? '').replace(/[&<>\"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','\\':'&#92;','"':'&quot;'}[m]));
+const fmt = n => Number(n || 0).toLocaleString();
+
+function setStatus(text, type='') { els.status.textContent = text; els.status.className = `status ${type}`; }
+function getURLs(){ return [...new Set(els.urls.value.split(/[\n,]+/).map(x=>x.trim()).filter(Boolean))]; }
+
+function renderSummary(data){
+  els.summary.hidden = false;
+  els.summary.innerHTML = `
+    <div class="stat"><small>Requested</small><strong>${fmt(data.requested)}</strong></div>
+    <div class="stat"><small>Succeeded</small><strong>${fmt(data.succeeded)}</strong></div>
+    <div class="stat"><small>Failed</small><strong>${fmt(data.failed)}</strong></div>
+    <div class="stat"><small>Total elapsed</small><strong>${fmt(data.elapsedMs)} ms</strong></div>`;
+}
+
+function renderResult(r, index){
+  if(!r.ok){
+    return `<article class="card"><div class="head"><div><div class="fail">✕ Failed</div><div class="url">${esc(r.inputURL)}</div></div><div class="fail">${esc(r.error || 'Unknown error')}</div></div><div class="body"><div class="mono">${esc(JSON.stringify(r.headerAttempts || [], null, 2))}</div></div></article>`;
+  }
+  const fetches = (r.fetches || []).map(f=>`<span class="chip">${esc(f.kind)} · ${esc(f.status)} · ${esc(f.latencyMs)}ms</span>`).join('');
+  const methods = (r.candidateSummary || []).map(c=>`<span class="chip">${esc(c.method)} · ${esc(c.length)} chars · ${esc(c.score)}</span>`).join('');
+  const tables = (r.tables || []).map(t=>`<div class="box"><h3>Table</h3><div class="mono">${esc(t.markdown)}</div></div>`).join('');
+  const raw = r.rawHTML ? `<details class="box" style="margin-top:14px"><summary>Raw HTML</summary><div class="mono">${esc(r.rawHTML)}</div></details>` : '';
+  return `<article class="card">
+    <div class="head">
+      <div><div class="ok">✓ ${esc(r.extractionMethod || 'extracted')}</div><div class="url">${esc(r.finalURL)}</div></div>
+      <div style="text-align:right;font-size:12px;color:#b9c4d4">Confidence <b>${esc(r.confidence)}%</b><br>${esc(r.latencyMs)} ms</div>
+    </div>
+    <div class="body">
+      <div class="grid">
+        <div class="box"><h3>Extracted page content</h3><div class="text">${esc(r.extractedText || 'No meaningful text candidate was recovered.')}</div></div>
+        <div>
+          <div class="box"><h3>Metadata</h3><div class="meta">
+            <div><b>Title:</b> ${esc(r.title)}</div>
+            <div><b>Canonical:</b> ${esc(r.canonical)}</div>
+            <div><b>Type:</b> ${esc(r.contentType)}</div>
+            <div><b>Length:</b> ${fmt(r.extractedTextLength)} chars</div>
+            <div><b>Structured data:</b> ${esc(r.structuredDataCount)}</div>
+          </div></div>
+          <div class="actions">
+            <button class="secondary" data-copy="${index}">Copy content</button>
+            <button class="secondary" data-json="${index}">Copy JSON</button>
+          </div>
+        </div>
+      </div>
+      <div class="box" style="margin-top:14px"><h3>Extraction candidates</h3><div class="chips">${methods || '<span class="chip">none</span>'}</div></div>
+      <div class="box" style="margin-top:14px"><h3>Network / discovery path</h3><div class="chips">${fetches || '<span class="chip">primary only</span>'}</div></div>
+      ${tables ? `<div style="margin-top:14px;display:grid;gap:10px">${tables}</div>` : ''}
+      ${raw}
+    </div>
+  </article>`;
+}
+
+let lastData = null;
+
+els.clear.onclick = () => { els.urls.value=''; els.results.innerHTML=''; els.summary.hidden=true; setStatus(''); lastData=null; };
+
+els.run.onclick = async () => {
+  const urls = getURLs();
+  if(!urls.length){ setStatus('Paste at least one http(s) URL.','bad'); return; }
+  els.run.disabled = true;
+  els.results.innerHTML = '';
+  els.summary.hidden = true;
+  setStatus(`Extracting ${urls.length} URL${urls.length===1?'':'s'} in parallel…`);
+  try{
+    const res = await fetch('/api/scrape', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({urls, deep:els.deep.checked, includeRaw:els.raw.checked, timeoutMs:Number(els.timeout.value)||8500})
+    });
+    const data = await res.json();
+    if(!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    lastData = data;
+    renderSummary(data);
+    els.results.innerHTML = data.results.map(renderResult).join('');
+    setStatus(`Done — ${data.succeeded}/${data.requested} URL${data.requested===1?'':'s'} returned successfully in ${fmt(data.elapsedMs)} ms.`, data.succeeded ? 'good' : 'bad');
+
+    [...document.querySelectorAll('[data-copy]')].forEach(btn => btn.onclick = async () => {
+      const item = lastData.results[Number(btn.dataset.copy)];
+      await navigator.clipboard.writeText(item?.extractedText || '');
+      btn.textContent = 'Copied'; setTimeout(()=>btn.textContent='Copy content',1000);
+    });
+    [...document.querySelectorAll('[data-json]')].forEach(btn => btn.onclick = async () => {
+      const item = lastData.results[Number(btn.dataset.json)];
+      await navigator.clipboard.writeText(JSON.stringify(item, null, 2));
+      btn.textContent = 'Copied'; setTimeout(()=>btn.textContent='Copy JSON',1000);
+    });
+  }catch(e){
+    setStatus(e?.message || String(e),'bad');
+  }finally{
+    els.run.disabled = false;
+  }
+};
+</script>
+</body>
+</html>
